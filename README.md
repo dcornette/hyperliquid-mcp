@@ -2,20 +2,44 @@
 
 A Model Context Protocol (MCP) server for Hyperliquid perpetual trading using the official Python SDK. This server provides AI assistants with secure, reliable access to Hyperliquid's trading platform.
 
+> Originally forked from [edkdev/hyperliquid-mcp](https://github.com/edkdev/hyperliquid-mcp). This version adds HTTP transport, Auth0 authentication, Docker deployment, and CI/CD.
+
 ## Features
 
-✅ **Official SDK** - Built on the official Hyperliquid Python SDK with proper signing  
-✅ **Complete Coverage** - All trading endpoints: orders, positions, market data, vaults  
-✅ **Secure** - Proper EIP-712 signing with agent mode support  
-✅ **Bracket Orders** - Atomic entry + TP + SL order placement  
-✅ **Market Data** - Real-time prices, order books, funding rates, candles  
-✅ **Account Management** - Positions, balances, fills, funding history  
-✅ **Testnet Support** - Test strategies safely before going live
+- **Official SDK** - Built on the official Hyperliquid Python SDK with proper EIP-712 signing
+- **Complete Coverage** - 21 trading tools: orders, positions, market data, vaults
+- **Dual Transport** - stdio for local MCP clients, Streamable HTTP for remote/production
+- **Auth0 JWT** - Optional JWT authentication for production deployments
+- **Bracket Orders** - Atomic entry + TP + SL order placement
+- **Docker Ready** - Multi-stage Dockerfile + Caddy reverse proxy with auto HTTPS
+- **Input Validation** - Order size limits, coin name validation, asset index bounds
+- **Security** - Error sanitization, address masking in logs, non-root Docker user
+- **Testnet Support** - Test strategies safely before going live
+
+## Architecture
+
+```
+MCP Client (Claude, Cursor, etc.)
+        |  JSON-RPC (stdio or HTTP)
+        v
+  server.py          <- FastMCP server, 21 @mcp.tool() definitions
+        |
+  handlers.py        <- HyperliquidHandler: trading logic, SDK interaction
+        |
+  Hyperliquid Python SDK
+        |
+  Hyperliquid DEX API
+```
+
+Supporting modules:
+- `config.py` — Environment-based configuration
+- `auth.py` — Optional Auth0 JWT verification
+- `validation.py` — Input validation and error sanitization
 
 ## Prerequisites
 
 - Python 3.10 or higher
-- [uv](https://github.com/astral-sh/uv) or [uvx](https://github.com/astral-sh/uv) for package management
+- [uv](https://github.com/astral-sh/uv) for package management
 - A Hyperliquid account with deposited funds
 
 ## Installation
@@ -23,35 +47,57 @@ A Model Context Protocol (MCP) server for Hyperliquid perpetual trading using th
 ### Using uvx (Recommended)
 
 ```bash
-# Install and run directly from PyPI
 uvx --from mcp-hyperliquid hyperliquid-mcp
 ```
 
 ### Using pip
 
 ```bash
-# Install with pip
 pip install mcp-hyperliquid
-
-# Run
-mcp-hyperliquid
+hyperliquid-mcp
 ```
 
-### Local Development
+### From Source
 
 ```bash
-# Clone and install from source
-git clone https://github.com/edkdev/hyperliquid-mcp.git
+git clone https://github.com/dcornette/hyperliquid-mcp.git
 cd hyperliquid-mcp
 uv sync
-
-# Run locally
 uv run python -m hyperliquid_mcp.server
 ```
 
-#### Local Development Configuration
+## Configuration
 
-If you're running from source code locally, use this configuration:
+### 1. Register Your Wallet on Hyperliquid
+
+Your wallet must be registered on Hyperliquid before trading.
+
+**Mainnet:** Go to https://app.hyperliquid.xyz, connect your wallet, deposit funds from Arbitrum One.
+
+**Testnet:** Go to https://app.hyperliquid-testnet.xyz, connect your wallet, get testnet funds from the faucet.
+
+### 2. Configure Your MCP Client
+
+#### Claude Desktop / Cursor (stdio mode)
+
+Add to your MCP client config (`claude_desktop_config.json`, `mcp.json`, etc.):
+
+```json
+{
+  "mcpServers": {
+    "hyperliquid": {
+      "command": "uvx",
+      "args": ["--from", "mcp-hyperliquid", "hyperliquid-mcp"],
+      "env": {
+        "HYPERLIQUID_PRIVATE_KEY": "0x...",
+        "HYPERLIQUID_TESTNET": "false"
+      }
+    }
+  }
+}
+```
+
+For local development from source:
 
 ```json
 {
@@ -59,101 +105,107 @@ If you're running from source code locally, use this configuration:
     "hyperliquid": {
       "command": "uv",
       "args": [
-        "--directory",
-        "/path/to/hyperliquid-mcp",
-        "run",
-        "python",
-        "-m",
-        "hyperliquid_mcp.server"
+        "--directory", "/path/to/hyperliquid-mcp",
+        "run", "python", "-m", "hyperliquid_mcp.server"
       ],
       "env": {
-        "HYPERLIQUID_PRIVATE_KEY": "0x1234567890abcdef...",
-        "HYPERLIQUID_TESTNET": "false"
+        "HYPERLIQUID_PRIVATE_KEY": "0x...",
+        "HYPERLIQUID_TESTNET": "true",
+        "MCP_TRANSPORT": "stdio"
       }
     }
   }
 }
 ```
 
-Replace `/path/to/hyperliquid-mcp` with the actual path to your cloned repository.
+### Environment Variables
 
-## Configuration
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `HYPERLIQUID_PRIVATE_KEY` | Yes | — | Wallet private key for signing |
+| `HYPERLIQUID_ACCOUNT_ADDRESS` | No | — | For agent/API wallet mode |
+| `HYPERLIQUID_VAULT_ADDRESS` | No | — | For vault trading |
+| `HYPERLIQUID_TESTNET` | No | `false` | Set `true` for testnet |
+| `MAX_ORDER_SIZE` | No | `100000` | Maximum order size limit |
+| `AUTH0_DOMAIN` | No | — | Auth0 tenant domain (enables JWT auth) |
+| `AUTH0_AUDIENCE` | No | — | Auth0 API audience (required if AUTH0_DOMAIN set) |
+| `MCP_TRANSPORT` | No | `streamable-http` | Transport: `stdio` or `streamable-http` |
+| `MCP_HOST` | No | `0.0.0.0` | Server bind address (HTTP mode) |
+| `MCP_PORT` | No | `8000` | Server port (HTTP mode) |
+| `DOMAIN` | No | — | Domain for Caddy reverse proxy |
 
-### 1. Register Your Wallet on Hyperliquid
+## Transport Modes
 
-**IMPORTANT:** Your wallet must be registered on Hyperliquid before trading.
+### stdio (local MCP clients)
 
-**Mainnet:**
+Used by Claude Desktop, Cursor, and other local MCP clients. The client spawns the server process and communicates via stdin/stdout.
 
-1. Go to https://app.hyperliquid.xyz
-2. Connect your wallet
-3. Deposit funds from Arbitrum One (any amount registers your wallet)
-
-**Testnet:**
-
-1. Go to https://app.hyperliquid-testnet.xyz
-2. Connect your wallet
-3. Get testnet funds from the faucet or bridge
-
-### 2. Configure Your MCP Client
-
-Environment variables are now configured directly in your MCP client settings (no `.env` file needed).
-
-#### Claude Desktop / Kiro
-
-Add to your `mcp.json` configuration file:
-
-```json
-{
-  "mcpServers": {
-    "hyperliquid": {
-      "command": "uvx",
-      "args": ["--from", "mcp-hyperliquid", "hyperliquid-mcp"],
-      "env": {
-        "HYPERLIQUID_PRIVATE_KEY": "0x1234567890abcdef...",
-        "HYPERLIQUID_TESTNET": "false"
-      }
-    }
-  }
-}
+```bash
+MCP_TRANSPORT=stdio uv run python -m hyperliquid_mcp.server
 ```
 
-**Required Environment Variables:**
+### Streamable HTTP (remote/production)
 
-- `HYPERLIQUID_PRIVATE_KEY` - Your wallet's private key for signing transactions
+Used for production deployments. The server runs as an HTTP service behind a reverse proxy.
 
-**Optional Environment Variables:**
+```bash
+# Direct
+MCP_TRANSPORT=streamable-http uv run python -m hyperliquid_mcp.server
 
-- `HYPERLIQUID_ACCOUNT_ADDRESS` - For agent/API wallet mode (advanced)
-- `HYPERLIQUID_TESTNET` - Set to "true" for testnet, "false" or omit for mainnet
-- `HYPERLIQUID_VAULT_ADDRESS` - For vault trading
-
-#### Full Configuration Example
-
-```json
-{
-  "mcpServers": {
-    "hyperliquid": {
-      "command": "uvx",
-      "args": ["--from", "mcp-hyperliquid", "hyperliquid-mcp"],
-      "env": {
-        "HYPERLIQUID_PRIVATE_KEY": "0x1234567890abcdef...",
-        "HYPERLIQUID_ACCOUNT_ADDRESS": "0xYourTradingAccountAddress...",
-        "HYPERLIQUID_TESTNET": "false",
-        "HYPERLIQUID_VAULT_ADDRESS": "0xVaultAddress..."
-      }
-    }
-  }
-}
+# Via uvicorn (production)
+uvicorn hyperliquid_mcp.server:app --host 0.0.0.0 --port 8000
 ```
 
-#### Other MCP Clients
+The MCP endpoint is available at `/mcp`.
 
-Configure according to your client's documentation, using:
+## Production Deployment
 
-- **Command:** `uvx` or `python`
-- **Args:** `["--from", "mcp-hyperliquid", "hyperliquid-mcp"]` or `["-m", "hyperliquid_mcp.server"]`
-- **Environment:** Add the required environment variables in your client's env configuration
+### Docker Compose + Caddy
+
+The project includes a production-ready Docker setup with Caddy as a reverse proxy handling automatic HTTPS via Let's Encrypt.
+
+```bash
+# Copy and configure environment
+cp .env.production.example .env
+# Edit .env with your values
+
+# Run with Docker Compose
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Stack:**
+- `mcp-server` — Python app running uvicorn (internal port 8000)
+- `caddy` — Reverse proxy with auto HTTPS, security headers
+
+The Caddyfile uses a `{$DOMAIN}` environment variable so no domain is hardcoded in the repo.
+
+### GitHub Actions CI/CD
+
+Deployment is automated via GitHub Actions, triggered by pushing a version tag:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+The pipeline:
+1. Builds the Docker image
+2. Pushes to GitHub Container Registry (`ghcr.io`)
+3. Copies deployment files to the VPS via SCP
+4. SSHs into the VPS and restarts containers
+
+Required GitHub Secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN`.
+
+### VPS Initial Setup
+
+```bash
+# Create app directory
+mkdir -p ~/hyperliquid-mcp
+cd ~/hyperliquid-mcp
+
+# Create .env with your secrets (see .env.production.example)
+nano .env
+```
 
 ## Available Tools
 
@@ -165,13 +217,11 @@ Configure according to your client's documentation, using:
 
 ### Order Management
 
-- **`hyperliquid_place_order`** - Place a single order
+- **`hyperliquid_place_order`** - Place a single order (limit, market, trigger)
 - **`hyperliquid_place_bracket_order`** - Place entry + TP + SL atomically
 - **`hyperliquid_cancel_order`** - Cancel a specific order
 - **`hyperliquid_cancel_all_orders`** - Cancel all open orders
 - **`hyperliquid_modify_order`** - Modify an existing order
-- **`hyperliquid_place_twap_order`** - Place TWAP order (coming soon)
-- **`hyperliquid_cancel_twap_order`** - Cancel TWAP order (coming soon)
 
 ### Order Queries
 
@@ -187,7 +237,7 @@ Configure according to your client's documentation, using:
 - **`hyperliquid_get_order_book`** - Get order book depth
 - **`hyperliquid_get_recent_trades`** - Get recent trades
 - **`hyperliquid_get_historical_funding`** - Get funding rate history
-- **`hyperliquid_get_candles`** - Get OHLCV candle data
+- **`hyperliquid_get_candles`** - Get OHLCV candle data (1m, 5m, 15m, 1h, 4h, 1d)
 
 ### Vault Management
 
@@ -200,95 +250,31 @@ Configure according to your client's documentation, using:
 
 ## Usage Examples
 
-### Example 1: Check Account Balance
+### Check Account Balance
 
 ```
 Show me my Hyperliquid account balance
 ```
 
-The AI will call `hyperliquid_get_balance` and show you:
-
-- Account value
-- Margin used
-- Withdrawable amount
-- Available balance
-
-### Example 2: Get Market Data
-
-```
-What's the current price of SOL on Hyperliquid? Show me the order book too.
-```
-
-The AI will:
-
-1. Call `hyperliquid_get_meta` to find SOL's index
-2. Call `hyperliquid_get_all_mids` for current price
-3. Call `hyperliquid_get_order_book` for depth
-
-### Example 3: Place a Bracket Order
+### Place a Bracket Order
 
 ```
 Place a bracket order on Hyperliquid:
 - Pair: SOL-USD
 - Side: BUY (LONG)
-- Size: 4.12 SOL (~$900)
+- Size: 4.12 SOL
 - Entry: $218.00
-- Target: $219.50 (+0.7%)
-- Stop Loss: $216.80 (-0.8%)
+- Target: $219.50
+- Stop Loss: $216.80
 ```
 
-The AI will:
+This places 3 orders atomically: entry at $218.00, TP trigger at $219.50, SL trigger at $216.80.
 
-1. Call `hyperliquid_get_meta` to get SOL's asset index (5)
-2. Call `hyperliquid_place_bracket_order` with:
-   - asset: 5
-   - isBuy: true
-   - size: "4.12"
-   - entryPrice: "218.00"
-   - takeProfitPrice: "219.50"
-   - stopLossPrice: "216.80"
-
-This places 3 orders atomically:
-
-- Entry order at $218.00
-- Take profit trigger at $219.50 (reduce-only)
-- Stop loss trigger at $216.80 (reduce-only)
-
-### Example 4: Check Positions and Close
+### Close a Position
 
 ```
 Show me my open positions. If I have a SOL position, close it at market price.
 ```
-
-The AI will:
-
-1. Call `hyperliquid_get_positions`
-2. If SOL position exists, call `hyperliquid_place_order` with:
-   - Opposite side (sell if long, buy if short)
-   - Market order (price = "0")
-   - Reduce-only enabled
-
-### Example 5: View Recent Trading Activity
-
-```
-Show me my last 50 trades from the past 24 hours
-```
-
-The AI will:
-
-1. Calculate timestamps (now - 24h to now)
-2. Call `hyperliquid_get_user_fills` with time range
-3. Format and display the results
-
-## Asset Index Reference
-
-Use `hyperliquid_get_meta` to get the full list. Common assets:
-
-| Index | Asset | Index | Asset | Index | Asset |
-| ----- | ----- | ----- | ----- | ----- | ----- |
-| 0     | BTC   | 1     | ETH   | 5     | SOL   |
-| 10    | LTC   | 11    | ARB   | 14    | SUI   |
-| 18    | LINK  | 25    | XRP   | 27    | APT   |
 
 ## Order Types
 
@@ -301,7 +287,7 @@ order_type = {"limit": {"tif": "Gtc"}}
 ### Market Order (Immediate or Cancel)
 
 ```python
-price = "0"  # Setting price to 0 makes it a market order
+price = "0"
 order_type = {"limit": {"tif": "Ioc"}}
 ```
 
@@ -310,153 +296,77 @@ order_type = {"limit": {"tif": "Ioc"}}
 ```python
 order_type = {
     "trigger": {
-        "triggerPx": "100.5",  # Trigger price
-        "isMarket": False,      # False for limit, True for market
-        "tpsl": "tp"            # "tp" for take profit, "sl" for stop loss
+        "triggerPx": "100.5",
+        "isMarket": False,
+        "tpsl": "tp"  # "tp" or "sl"
     }
 }
+```
+
+## Code Structure
+
+```
+hyperliquid-mcp/
+├── src/hyperliquid_mcp/
+│   ├── __init__.py
+│   ├── server.py          # FastMCP server, 21 tool definitions
+│   ├── handlers.py        # Trading logic, SDK interaction
+│   ├── config.py          # Environment-based config
+│   ├── auth.py            # Auth0 JWT verification
+│   └── validation.py      # Input validation, error sanitization
+├── .github/workflows/
+│   └── deploy.yml         # CI/CD pipeline
+├── Dockerfile             # Multi-stage build, non-root user
+├── docker-compose.yml     # Local development
+├── docker-compose.prod.yml # Production (ghcr.io image)
+├── Caddyfile              # Reverse proxy config
+└── pyproject.toml         # Project metadata
 ```
 
 ## Error Handling
 
 ### "User or API Wallet does not exist"
 
-**Problem:** Your wallet isn't registered on Hyperliquid.
-
-**Solution:**
-
-1. Go to app.hyperliquid.xyz (or testnet URL)
-2. Connect your wallet
-3. Deposit any amount from Arbitrum
-4. This registers your wallet
+Your wallet isn't registered on Hyperliquid. Go to app.hyperliquid.xyz, connect your wallet, and deposit any amount.
 
 ### "Order value must be at least $10"
 
-**Problem:** Your order size is too small.
-
-**Solution:** Ensure `size * price >= $10`
-
-Example:
-
-- SOL at $200: Need at least 0.05 SOL
-- BTC at $50,000: Need at least 0.0002 BTC
+Ensure `size * price >= $10`.
 
 ### "Invalid signature"
 
-**Problem:** Private key mismatch or signing error.
-
-**Solution:**
-
-1. Check your HYPERLIQUID_PRIVATE_KEY is correct
-2. Ensure it matches the wallet address you registered
-3. If using agent mode, verify HYPERLIQUID_ACCOUNT_ADDRESS
+Check your `HYPERLIQUID_PRIVATE_KEY` matches the registered wallet. If using agent mode, verify `HYPERLIQUID_ACCOUNT_ADDRESS`.
 
 ## Agent Mode (Advanced)
 
 Agent mode allows an API wallet to sign transactions for a different trading account.
-
-**Use case:** Keep your main account safe while allowing an API wallet to trade.
-
-**Setup:**
 
 ```bash
 HYPERLIQUID_PRIVATE_KEY=0xApiWalletPrivateKey...
 HYPERLIQUID_ACCOUNT_ADDRESS=0xMainTradingAccountAddress...
 ```
 
-**Requirements:**
-
-1. Both wallets must be registered on Hyperliquid
-2. Main account must approve the API wallet as an agent
-3. Use `approve_agent` action through Hyperliquid UI first
+Both wallets must be registered, and the main account must approve the API wallet as an agent via the Hyperliquid UI.
 
 ## Security Best Practices
 
 1. **Never commit private keys** - Always use environment variables
 2. **Use testnet first** - Test strategies before going live
 3. **Set up stop losses** - Use bracket orders for risk management
-4. **Monitor positions** - Regularly check your account
-5. **Use agent mode** - For production, keep main account key offline
+4. **Use agent mode** - For production, keep main account key offline
+5. **Enable Auth0** - Protect your HTTP endpoint with JWT authentication
 6. **Start small** - Test with minimum order sizes first
 
-## Troubleshooting
-
-### Server won't start
-
-```bash
-# Check Python version
-python --version  # Should be 3.10+
-
-# Check dependencies
-uv sync
-
-# Check environment variables
-cat .env
-
-# Run with debug logging
-HYPERLIQUID_LOG_LEVEL=DEBUG uvx --from mcp-hyperliquid hyperliquid-mcp
-```
-
-### Orders not placing
-
-1. Check wallet is registered (see error handling)
-2. Verify order size meets $10 minimum
-3. Check you have sufficient balance
-4. Ensure asset index is correct (use `get_meta`)
-
-### Can't find asset
-
-```
-Use the hyperliquid_get_meta tool to get all asset indices
-```
-
-The AI will show you the complete list of tradeable assets with their indices.
-
-## Development
-
-### Local Development
-
-```bash
-# Clone the repository
-git clone https://github.com/edkdev/hyperliquid-mcp.git
-cd hyperliquid-mcp
-
-# Install dependencies
-uv sync
-
-# Run locally
-uv run python -m hyperliquid_mcp.server
-
-# Run tests (when available)
-uv run pytest
-```
-
-### Code Structure
-
-```
-hyperliquid-mcp/
-├── src/
-│   └── hyperliquid_mcp/
-│       ├── __init__.py
-│       └── server.py          # Main MCP server implementation
-├── pyproject.toml             # Project configuration
-├── README.md                  # This file
-└── .env.example              # Environment template
-```
-
-### **Join Our Community**
+## Community
 
 - **[Telegram Group](https://t.me/+fC8GWO3zBe04NTY0)** - Get help, share strategies, and connect with other traders
 
 ## Contributing
 
-Contributions are welcome! Please:
-
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+4. Submit a pull request
 
 ## License
 
@@ -467,18 +377,8 @@ MIT License - see LICENSE file for details
 - [Hyperliquid Official Docs](https://hyperliquid.gitbook.io/)
 - [Hyperliquid Python SDK](https://github.com/hyperliquid-dex/hyperliquid-python-sdk)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
-- [MCP Servers Repository](https://github.com/modelcontextprotocol/servers)
-
-## Support
-
-- **Issues:** Open an issue on GitHub
-- **Hyperliquid Support:** https://hyperliquid.gitbook.io/hyperliquid-docs/help/support
-- **MCP Documentation:** https://modelcontextprotocol.io/
+- [FastMCP](https://github.com/jlowin/fastmcp)
 
 ## Disclaimer
 
 This software is provided "as is" without warranty. Trading cryptocurrencies carries significant risk. Only trade with funds you can afford to lose. The authors are not responsible for any trading losses.
-
----
-
-**Happy Trading! 🚀**
