@@ -1,6 +1,6 @@
 [project]
 name = "mcp-hyperliquid"
-version = "0.1.0"
+version = "0.2.0"
 description = "Model Context Protocol server for Hyperliquid trading using the official Python SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,7 +22,8 @@ classifiers = [
 ]
 dependencies = [
     "hyperliquid-python-sdk>=0.6.0",
-    "mcp>=1.0.0",
+    "fastmcp>=2.14.0,<3",
+    "uvicorn[standard]>=0.30.0",
 ]
 
 [project.optional-dependencies]

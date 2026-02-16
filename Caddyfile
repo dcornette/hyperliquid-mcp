@@ -1,0 +1,15 @@
+hl.your-domain.com {
+	reverse_proxy mcp-server:8000
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
