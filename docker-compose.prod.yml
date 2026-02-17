@@ -1,0 +1,38 @@
+services:
+  mcp-server:
+    image: ghcr.io/dcornette/hyperliquid-mcp:latest
+    container_name: hyperliquid-mcp
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "8000"
+    networks:
+      - mcp-net
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file:
+      - .env
+    networks:
+      - mcp-net
+    depends_on:
+      - mcp-server
+
+networks:
+  mcp-net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

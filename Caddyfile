@@ -1,4 +1,4 @@
-hl.your-domain.com {
+{$DOMAIN} {
 	reverse_proxy mcp-server:8000
 
 	header {
