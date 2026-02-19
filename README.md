@@ -9,7 +9,7 @@ A Model Context Protocol (MCP) server for Hyperliquid perpetual trading using th
 - **Official SDK** - Built on the official Hyperliquid Python SDK with proper EIP-712 signing
 - **Complete Coverage** - 21 trading tools: orders, positions, market data, vaults
 - **Dual Transport** - stdio for local MCP clients, Streamable HTTP for remote/production
-- **Auth0 JWT** - Optional JWT authentication for production deployments
+- **Auth0 OAuth** - Full OAuth 2.0 flow for production deployments (works with Claude.ai)
 - **Bracket Orders** - Atomic entry + TP + SL order placement
 - **Docker Ready** - Multi-stage Dockerfile + Caddy reverse proxy with auto HTTPS
 - **Input Validation** - Order size limits, coin name validation, asset index bounds
@@ -33,7 +33,7 @@ MCP Client (Claude, Cursor, etc.)
 
 Supporting modules:
 - `config.py` — Environment-based configuration
-- `auth.py` — Optional Auth0 JWT verification
+- `auth.py` — Optional Auth0 OAuth provider (full OAuth 2.0 flow)
 - `validation.py` — Input validation and error sanitization
 
 ## Prerequisites
@@ -127,8 +127,11 @@ For local development from source:
 | `HYPERLIQUID_VAULT_ADDRESS` | No | — | For vault trading |
 | `HYPERLIQUID_TESTNET` | No | `false` | Set `true` for testnet |
 | `MAX_ORDER_SIZE` | No | `100000` | Maximum order size limit |
-| `AUTH0_DOMAIN` | No | — | Auth0 tenant domain (enables JWT auth) |
-| `AUTH0_AUDIENCE` | No | — | Auth0 API audience (required if AUTH0_DOMAIN set) |
+| `AUTH0_DOMAIN` | No | — | Auth0 tenant domain (enables OAuth) |
+| `AUTH0_CLIENT_ID` | No | — | Auth0 application client ID |
+| `AUTH0_CLIENT_SECRET` | No | — | Auth0 application client secret |
+| `AUTH0_AUDIENCE` | No | — | Auth0 API audience |
+| `MCP_BASE_URL` | No | — | Server public URL (e.g. `https://hl.example.com`) |
 | `MCP_TRANSPORT` | No | `streamable-http` | Transport: `stdio` or `streamable-http` |
 | `MCP_HOST` | No | `0.0.0.0` | Server bind address (HTTP mode) |
 | `MCP_PORT` | No | `8000` | Server port (HTTP mode) |
@@ -312,7 +315,7 @@ hyperliquid-mcp/
 │   ├── server.py          # FastMCP server, 21 tool definitions
 │   ├── handlers.py        # Trading logic, SDK interaction
 │   ├── config.py          # Environment-based config
-│   ├── auth.py            # Auth0 JWT verification
+│   ├── auth.py            # Auth0 OAuth provider
 │   └── validation.py      # Input validation, error sanitization
 ├── .github/workflows/
 │   └── deploy.yml         # CI/CD pipeline
@@ -354,7 +357,7 @@ Both wallets must be registered, and the main account must approve the API walle
 2. **Use testnet first** - Test strategies before going live
 3. **Set up stop losses** - Use bracket orders for risk management
 4. **Use agent mode** - For production, keep main account key offline
-5. **Enable Auth0** - Protect your HTTP endpoint with JWT authentication
+5. **Enable Auth0** - Protect your HTTP endpoint with OAuth 2.0 authentication
 6. **Start small** - Test with minimum order sizes first
 
 ## Community
