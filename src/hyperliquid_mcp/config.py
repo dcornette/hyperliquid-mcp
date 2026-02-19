@@ -18,7 +18,10 @@ class Config:
 
         # Auth0
         self.auth0_domain: str | None = os.getenv("AUTH0_DOMAIN")
+        self.auth0_client_id: str | None = os.getenv("AUTH0_CLIENT_ID")
+        self.auth0_client_secret: str | None = os.getenv("AUTH0_CLIENT_SECRET")
         self.auth0_audience: str | None = os.getenv("AUTH0_AUDIENCE")
+        self.base_url: str | None = os.getenv("MCP_BASE_URL")
 
         # Server
         self.host: str = os.getenv("MCP_HOST", "0.0.0.0")
