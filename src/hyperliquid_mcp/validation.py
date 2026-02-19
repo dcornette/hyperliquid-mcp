@@ -26,7 +26,7 @@ def validate_coin_name(coin: str, valid_coins: set[str]) -> None:
         raise ValidationError("Coin name cannot be empty")
     if coin not in valid_coins:
         raise ValidationError(
-            f"Unknown coin '{coin}'. Use hyperliquid_get_meta to see valid coins."
+            f"Unknown coin '{coin}'. Use hyperliquid_get_meta for perp coins or hyperliquid_get_spot_meta for spot pairs."
         )
 
 

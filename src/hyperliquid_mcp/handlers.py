@@ -11,7 +11,7 @@ from hyperliquid.utils import constants
 from hyperliquid.utils.types import Cloid
 
 from .config import Config
-from .validation import validate_asset_index, validate_coin_name, validate_order_size
+from .validation import ValidationError, validate_asset_index, validate_coin_name, validate_order_size
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +66,9 @@ class HyperliquidHandler:
         return self.config.account_address
 
     def _get_valid_coins(self) -> set[str]:
-        """Get and cache valid coin names from metadata."""
+        """Get and cache valid coin names from metadata (perp + spot)."""
         if self._coin_cache is None:
-            meta = self.info.meta()
-            self._coin_cache = {asset["name"] for asset in meta["universe"]}
+            self._coin_cache = set(self.info.name_to_coin.keys())
         return self._coin_cache
 
     def _resolve_address(self, user_address: str | None) -> str:
@@ -422,8 +421,8 @@ class HyperliquidHandler:
             }
             for idx, asset in enumerate(result["universe"])
         ]
-        # Refresh coin cache
-        self._coin_cache = {a["name"] for a in result["universe"]}
+        # Refresh coin cache (perp + spot)
+        self._coin_cache = set(self.info.name_to_coin.keys())
         return {
             "message": "Exchange metadata retrieved",
             "data": result,
@@ -491,6 +490,104 @@ class HyperliquidHandler:
                 "interval": interval,
                 "numberOfCandles": len(result) if result else 0,
             },
+        }
+
+    # =========================================================================
+    # Spot Trading
+    # =========================================================================
+
+    def get_spot_meta(self) -> dict:
+        """Get spot market metadata with human-readable pair names."""
+        result = self.info.spot_meta()
+        tokens = result["tokens"]
+        pairs = []
+        for asset in result["universe"]:
+            base_idx, quote_idx = asset["tokens"]
+            base_info = tokens[base_idx]
+            quote_info = tokens[quote_idx]
+            pair_name = f'{base_info["name"]}/{quote_info["name"]}'
+            pairs.append({
+                "pair": pair_name,
+                "internalName": asset["name"],
+                "index": asset["index"],
+                "isCanonical": asset.get("isCanonical", False),
+                "baseToken": base_info["name"],
+                "quoteToken": quote_info["name"],
+                "szDecimals": base_info["szDecimals"],
+            })
+        return {
+            "message": "Spot metadata retrieved",
+            "data": result,
+            "summary": {
+                "numberOfPairs": len(pairs),
+                "pairs": pairs,
+            },
+        }
+
+    def get_spot_balances(self, user_address: str = "") -> dict:
+        """Get user's spot token balances."""
+        address = self._resolve_address(user_address)
+        result = self.info.spot_user_state(address)
+        return {
+            "message": "Spot balances retrieved",
+            "data": result,
+        }
+
+    def place_spot_order(
+        self,
+        coin: str,
+        isBuy: bool,
+        size: str,
+        price: str = "0",
+        orderType: dict | None = None,
+        cloid: str | None = None,
+    ) -> dict:
+        """Place a spot order. Coin should be a spot pair name (e.g. 'HYPE/USDC')."""
+        validate_coin_name(coin, self._get_valid_coins())
+
+        # Resolve to internal coin name and validate it's a spot asset
+        internal_coin = self.info.name_to_coin[coin]
+        asset_index = self.info.coin_to_asset[internal_coin]
+        if asset_index < 10_000:
+            raise ValidationError(
+                f"'{coin}' is a perp asset, not a spot pair. "
+                f"Use hyperliquid_place_order for perp trading."
+            )
+
+        size_f = float(size)
+        price_f = float(price) if price else 0.0
+
+        validate_order_size(size_f, price_f, self.config.max_order_size)
+
+        order_type = orderType or {"limit": {"tif": "Gtc"}}
+        cloid_obj = Cloid(cloid) if cloid else None
+
+        result = self.exchange.order(
+            name=coin,
+            is_buy=isBuy,
+            sz=size_f,
+            limit_px=price_f,
+            order_type=order_type,
+            reduce_only=False,
+            cloid=cloid_obj,
+        )
+
+        return {
+            "message": f"Spot order placed for {coin}",
+            "data": result,
+            "orderInfo": self._parse_order_response(result),
+        }
+
+    def transfer_between_spot_and_perp(self, amount: float, toPerp: bool) -> dict:
+        """Transfer USDC between spot and perp accounts."""
+        if amount <= 0:
+            raise ValidationError("Transfer amount must be positive")
+
+        result = self.exchange.usd_class_transfer(amount, toPerp)
+        direction = "spot → perp" if toPerp else "perp → spot"
+        return {
+            "message": f"Transferred ${amount} ({direction})",
+            "data": result,
         }
 
     # =========================================================================

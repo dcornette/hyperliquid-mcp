@@ -285,6 +285,57 @@ def hyperliquid_vault_performance(
 
 
 # =============================================================================
+# Spot Trading
+# =============================================================================
+
+
+@mcp.tool()
+def hyperliquid_get_spot_meta() -> str:
+    """Get spot market metadata including all available trading pairs, token info, and szDecimals."""
+    try:
+        return _ok(handler.get_spot_meta())
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+def hyperliquid_get_spot_balances(userAddress: str = "") -> str:
+    """Get user's spot token balances with available and held amounts."""
+    try:
+        return _ok(handler.get_spot_balances(userAddress))
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+def hyperliquid_place_spot_order(
+    coin: str,
+    isBuy: bool,
+    size: str,
+    price: str = "0",
+    orderType: dict | None = None,
+    cloid: str | None = None,
+) -> str:
+    """Place a spot order. Use coin name from get_spot_meta (e.g. 'HYPE/USDC'). Minimum order value is $10."""
+    try:
+        return _ok(handler.place_spot_order(coin, isBuy, size, price, orderType, cloid))
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+def hyperliquid_transfer_between_spot_and_perp(
+    amount: float,
+    toPerp: bool,
+) -> str:
+    """Transfer USDC between spot and perp accounts. Set toPerp=true to move funds to perp, false to move to spot."""
+    try:
+        return _ok(handler.transfer_between_spot_and_perp(amount, toPerp))
+    except Exception as e:
+        return _err(e)
+
+
+# =============================================================================
 # Utility
 # =============================================================================
 
